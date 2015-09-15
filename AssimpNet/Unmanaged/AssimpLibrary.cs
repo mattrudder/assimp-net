@@ -1465,12 +1465,18 @@ namespace Assimp.Unmanaged
         public const String DefaultWindows32BitPath = "Assimp32.dll";
         public const String DefaultWindows64BitPath = "Assimp64.dll";
 
+		public const String DefaultMacPath = "libassimp.dylib";
+
         public const String DefaultLinux32BitPath = "Assimp32.so";
         public const String DefaultLinux64BitPath = "Assimp64.so";
 
         public static AssimpLibraryImplementation CreateRuntimeImplementation()
         {
-            if(IsLinux())
+			if (IsMac ())
+			{
+				return new AssimpLibraryMacImplementation();
+			}
+            if (IsLinux())
             {
                 return new AssimpLibraryLinuxImplementation();
             }
@@ -1485,6 +1491,34 @@ namespace Assimp.Unmanaged
             int platform = (int) Environment.OSVersion.Platform;
             return (platform == 4) || (platform == 6) || (platform == 128);
         }
+
+		private static bool IsMac()
+		{
+			IntPtr buf = IntPtr.Zero;
+			try
+			{
+				buf = Marshal.AllocHGlobal(8192);
+				// This is a hacktastic way of getting sysname from uname ()
+				if (uname(buf) == 0)
+				{
+					string os = Marshal.PtrToStringAnsi(buf);
+					if (os == "Darwin")
+						return true;
+				}
+			}
+			catch
+			{
+			}
+			finally
+			{
+				if (buf != IntPtr.Zero)
+					Marshal.FreeHGlobal(buf);
+			}
+			return false;
+		}
+
+		[DllImport ("libc")]
+		static extern int uname (IntPtr buf);
     }
 
     /// <summary>
@@ -1768,6 +1802,74 @@ namespace Assimp.Unmanaged
     }
 
     #endregion
+
+	#region Mac Implementation
+
+	/// <summary>
+	/// Mac implementation for loading the unmanaged assimp library.
+	/// </summary>
+	internal sealed class AssimpLibraryMacImplementation : AssimpLibraryImplementation
+	{
+
+		public override string DefaultLibraryPath32Bit
+		{
+			get
+			{
+				return AssimpDefaultLibraryPath.DefaultMacPath;
+			}
+		}
+
+		public override string DefaultLibraryPath64Bit
+		{
+			get
+			{
+				return AssimpDefaultLibraryPath.DefaultMacPath;
+			}
+		}
+
+		[DllImport("/usr/lib/libSystem.dylib")]
+		private static extern IntPtr dlopen(String fileName, int flags);
+
+		[DllImport("/usr/lib/libSystem.dylib")]
+		private static extern IntPtr dlsym(IntPtr handle, String functionName);
+
+		[DllImport("/usr/lib/libSystem.dylib")]
+		private static extern int dlclose(IntPtr handle);
+
+		[DllImport("/usr/lib/libSystem.dylib")]
+		private static extern IntPtr dlerror();
+
+		private const int RTLD_NOW = 2;
+
+		protected override IntPtr NativeLoadLibrary(String path)
+		{
+			IntPtr libraryHandle = dlopen(path, RTLD_NOW);
+
+			if(libraryHandle == IntPtr.Zero)
+			{
+				IntPtr errPtr = dlerror();
+				String msg = Marshal.PtrToStringAnsi(errPtr);
+				if(!String.IsNullOrEmpty(msg))
+					throw new AssimpException("Error loading unmanaged library from path: " + path + ", error detail:\n" + msg);
+				else
+					throw new AssimpException("Error loading unmanaged library from path: " + path);
+			}
+
+			return libraryHandle;
+		}
+
+		protected override void NativeFreeLibrary(IntPtr handle)
+		{
+			dlclose(handle);
+		}
+
+		protected override IntPtr NativeGetProcAddress(IntPtr handle, string functionName)
+		{
+			return dlsym(handle, functionName);
+		}
+	}
+
+	#endregion
 
     #endregion
 }

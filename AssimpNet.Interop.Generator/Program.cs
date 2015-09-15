@@ -27,6 +27,7 @@ using System.Reflection;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 using Mono.Cecil.Pdb;
+using Mono.Cecil.Mdb;
 using Mono.Collections.Generic;
 
 namespace AssimpNet.Interop.Generator
@@ -38,11 +39,15 @@ namespace AssimpNet.Interop.Generator
     class Program
     {
         private static AssemblyDefinition m_mscorLib;
+		private static bool m_isMono;
 
         static void Main(string[] args)
         {
             if(args.Length == 0)
                 return;
+
+			Type monoType = Type.GetType("Mono.Runtime");
+			m_isMono = monoType != null;
 
             String filePath = args[0];
             filePath = Path.GetFullPath(filePath);
@@ -67,7 +72,8 @@ namespace AssimpNet.Interop.Generator
         {
             Console.WriteLine("Generating Interop...");
 
-            String pdbFile = Path.Combine(Path.GetDirectoryName(filePath), Path.GetFileNameWithoutExtension(filePath) + ".pdb");
+			String pdbExtension = m_isMono ? ".dll.mdb" : ".dll.pdb";
+            String pdbFile = Path.Combine(Path.GetDirectoryName(filePath), Path.ChangeExtension(filePath, pdbExtension));
 
             ReaderParameters readerParams = new ReaderParameters();
             WriterParameters writerParams = new WriterParameters();
@@ -77,7 +83,7 @@ namespace AssimpNet.Interop.Generator
 
             if(File.Exists(pdbFile))
             {
-                readerParams.SymbolReaderProvider = new PdbReaderProvider();
+				readerParams.SymbolReaderProvider = m_isMono ? (ISymbolReaderProvider) new MdbReaderProvider() : (ISymbolReaderProvider) new PdbReaderProvider();
                 readerParams.ReadSymbols = true;
                 writerParams.WriteSymbols = true;
             }
